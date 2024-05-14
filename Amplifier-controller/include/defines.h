@@ -43,7 +43,7 @@
 #define BUZZER                              2  // 
 #define SENSORS_SUPPLY_5V_OUT                7  //  
 #define MAIN_SUPPLY_OUT			             9  // 
-#define BUILTIN_LED                         13  // 
+#define STATUS_LED_OUT                         13  // 
 #define WDT_RESET_OUT                        8  // WDT reset signal to AD705
 
 
