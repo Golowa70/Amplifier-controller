@@ -12,15 +12,15 @@ struct InitValuesStruct { // init setpoints
 
 }default_setpoints_data;
 
-union {
-  InitValuesStruct setpoints_data;
-  uint8_t SetpointsArray[2];
-}SetpointsUnion; // 2 bytes
+// union {
+//   InitValuesStruct setpoints_data;
+//   uint8_t SetpointsArray[2];
+// }SetpointsUnion; // 2 bytes
 
 //*********** Main data *******************************************************************************
 struct Data
 {
-  float voltage;                   // power supply voltage
+  float voltage;                   //power supply voltage 
   float sensors_voltage;          
   float sensor1_temp;
   float sensor2_temp;
