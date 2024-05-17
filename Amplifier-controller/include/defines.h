@@ -58,6 +58,8 @@
 #define MINUTE       60000          //ms  минута
 #define HOUR         3600000        //ms  час
 
+#define MIN_RPM     200
+
 //timers
 #define START_DELAY                     1000  //ms задержка выполнения некоторых функций после подачи питания (пока датчики запустятся)
 #define WDT_RESET_PERIOD                1000  // us период сброса ADM705 < 1.6 sec

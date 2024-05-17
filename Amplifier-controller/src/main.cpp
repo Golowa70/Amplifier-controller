@@ -13,7 +13,7 @@ void TaskInputsUpdate(void* pvParameters);
 void TaskButtonsPolling(void* pvParameters);
 void TaskSpeakersRelays(void* pvParameters);
 void TaskDirectRelay(void* pvParameters);
-void TaskDirectRelay(void* pvParameters);
+void TaskPowerRelay(void* pvParameters);
 void TaskMainData(void* pvParameters);
 
 SemaphoreHandle_t LoudnessButtonSemaphore;
@@ -131,23 +131,45 @@ void TaskButtonsPolling(void* pvParameters __attribute__((unused))) {
 }
 
 void TaskSpeakersRelays(void* pvParameters __attribute__((unused))) {
+  bool sp_A_state = false;
+  bool sp_B_state = false;
   for (;;) {
     if (xSemaphoreTake(Sp_A_ButtonSemaphore, portMAX_DELAY) == pdPASS) {
-      digitalWrite(SPEAKERS_A_OUT, HIGH);
-      digitalWrite(SPEAKERS_B_OUT, LOW);
+      sp_A_state = true;
+      sp_B_state = false;
+      xQueueSend(sp_A_stateQueue, &sp_A_state, 0);
+      xQueueSend(sp_B_stateQueue, &sp_B_state, 0);
     }
     if (xSemaphoreTake(Sp_B_ButtonSemaphore, portMAX_DELAY) == pdPASS) {
-      digitalWrite(SPEAKERS_B_OUT, HIGH);
-      digitalWrite(SPEAKERS_A_OUT, LOW);
+      sp_A_state = false;
+      sp_B_state = true;
+      xQueueSend(sp_A_stateQueue, &sp_A_state, 0);
+      xQueueSend(sp_B_stateQueue, &sp_B_state, 0);
     }
   }
 }
 
 void TaskDirectRelay(void* pvParameters __attribute__((unused))) {
+  bool dr_state = false;
   for (;;) {
     if (xSemaphoreTake(Sp_A_ButtonSemaphore, portMAX_DELAY) == pdPASS) {
-      digitalWrite(DIRECT_INPUT_RELAY_OUT, !digitalRead(DIRECT_INPUT_RELAY_OUT));
+      dr_state = !main_data.direct_relay_state;
+      xQueueSend(directRelayStateQueue, &dr_state, 0);
     }
+  }
+}
+
+void TaskPowerRelay(void* pvParameters __attribute__((unused))) {
+  bool pwr_state = false;
+  for (;;) {
+    if (main_data.fun1_rpm > MIN_RPM && main_data.fun2_rpm > MIN_RPM) {
+      pwr_state = true;
+    }
+    else {
+      pwr_state = false;
+    }
+    xQueueSend(powerRelayStateQueue, &pwr_state, 0);
+    vTaskDelay(1);
   }
 }
 
@@ -169,7 +191,18 @@ void TaskMainData(void* pvParameters __attribute__((unused))) {
   for (;;) {
     if (xQueueReceive(voltageQueue, &voltage, 0) == pdPASS) main_data.voltage = voltage;
     if (xQueueReceive(sensorsVoltageQueue, &sensors_voltage, 0) == pdPASS) main_data.sensors_voltage = sensors_voltage;
-
-
+    if (xQueueReceive(sensor1TempQueue, &sensor1_temp, 0) == pdPASS) main_data.sensor1_temp = sensor1_temp;
+    if (xQueueReceive(sensor2TempQueue, &sensor2_temp, 0) == pdPASS) main_data.sensor2_temp = sensor2_temp;
+    if (xQueueReceive(fun1RpmQueue, &fun1_rpm, 0) == pdPASS) main_data.fun1_rpm = fun1_rpm;
+    if (xQueueReceive(fun2RpmQueue, &fun2_rpm, 0) == pdPASS) main_data.fun2_rpm = fun2_rpm;
+    if (xQueueReceive(thermostat1StateQueue, &thermostat1_state, 0) == pdPASS) main_data.thermostat1_state = thermostat1_state;
+    if (xQueueReceive(thermostat2StateQueue, &thermostat2_state, 0) == pdPASS) main_data.thermostat2_state = thermostat2_state;
+    if (xQueueReceive(powerRelayStateQueue, &power_relay_state, 0) == pdPASS) main_data.power_relay_state = power_relay_state;
+    if (xQueueReceive(sp_A_stateQueue, &sp_A_out_state, 0) == pdPASS) main_data.sp_A_out_state = sp_A_out_state;
+    if (xQueueReceive(sp_B_stateQueue, &sp_B_out_state, 0) == pdPASS) main_data.sp_B_out_state = sp_B_out_state;
+    if (xQueueReceive(directRelayStateQueue, &direct_relay_state, 0) == pdPASS) main_data.direct_relay_state = direct_relay_state;
+    vTaskDelay(1);
   }
 }
+
+
