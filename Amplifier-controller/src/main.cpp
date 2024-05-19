@@ -2,6 +2,7 @@
 #include <Arduino_FreeRTOS.h>
 #include <semphr.h>  
 #include "GyverButton.h"
+#include <GyverDS18.h>
 
 #include "defines.h"
 #include "variables.h"
@@ -14,7 +15,8 @@ void TaskButtonsPolling(void* pvParameters);
 void TaskSpeakersRelays(void* pvParameters);
 void TaskDirectRelay(void* pvParameters);
 void TaskPowerRelay(void* pvParameters);
-void TaskMainData(void* pvParameters);
+void TaskMainDataHandler(void* pvParameters);
+void TaskGetTemp(void* pvParameters);
 
 SemaphoreHandle_t LoudnessButtonSemaphore;
 SemaphoreHandle_t DirectButtonSemaphore;
@@ -34,16 +36,21 @@ QueueHandle_t powerRelayStateQueue;
 QueueHandle_t sp_A_stateQueue;
 QueueHandle_t sp_B_stateQueue;
 QueueHandle_t directRelayStateQueue;
-
-
+QueueHandle_t errorsQueue;
 
 GButton btn_loudness(LOUDNESS_REMOTE_BUTTON_IN);
 GButton btn_direct(DIRECT_BUTTON_IN);
 GButton btn_sp_A(SPEAKERS_A_BUTTON_IN);
 GButton btn_sp_B(SPEAKERS_B_BUTTON_IN);
+GyverDS18Single ds1(ONE_WIRE_1_PIN);
+GyverDS18Single ds2(ONE_WIRE_2_PIN);
+
+bool fnCheckProtections();
 
 void setup() {
   Serial.begin(9600);
+  ds1.requestTemp();
+  ds2.requestTemp();
 
   btn_loudness.setTickMode(AUTO);
   btn_direct.setTickMode(AUTO);
@@ -55,14 +62,17 @@ void setup() {
     ,
     192 // This stack size can be checked & adjusted by reading the Stack Highwater //128
     ,
-    NULL, 3 // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    NULL, 2 // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
     ,
     NULL);
 
-  xTaskCreate(TaskOutputsUpdate, "Inputs update task", 128, NULL, 3, NULL);
-  xTaskCreate(TaskButtonsPolling, "Buttons polling task", 128, NULL, 3, NULL);
-  xTaskCreate(TaskSpeakersRelays, "Speakers outputs task", 128, NULL, 3, NULL);
-  xTaskCreate(TaskDirectRelay, "Direct relay task", 128, NULL, 3, NULL);
+  xTaskCreate(TaskOutputsUpdate, "Inputs update task", 128, NULL, 2, NULL);
+  xTaskCreate(TaskButtonsPolling, "Buttons polling task", 128, NULL, 2, NULL);
+  xTaskCreate(TaskSpeakersRelays, "Speakers outputs task", 128, NULL, 1, NULL);
+  xTaskCreate(TaskDirectRelay, "Direct relay task", 128, NULL, 1, NULL);
+  xTaskCreate(TaskPowerRelay, "Power relay task", 128, NULL, 1, NULL);
+  xTaskCreate(TaskMainDataHandler, "Main data task", 128, NULL, 3, NULL);
+  xTaskCreate(TaskGetTemp, "Get temp task", 128, NULL, 2, NULL);
 
   LoudnessButtonSemaphore = xSemaphoreCreateBinary();
   DirectButtonSemaphore = xSemaphoreCreateBinary();
@@ -82,6 +92,7 @@ void setup() {
   sp_A_stateQueue = xQueueCreate(1, sizeof(bool));
   sp_B_stateQueue = xQueueCreate(1, sizeof(bool));
   directRelayStateQueue = xQueueCreate(1, sizeof(bool));
+  errorsQueue = xQueueCreate(6, sizeof(bool));
 }
 
 void loop() {
@@ -93,8 +104,8 @@ void TaskInputsUpdate(void* pvParameters __attribute__((unused))) {
   bool th1 = false;
   bool  th2 = false;
   for (;;) {
-    th1 = digitalRead(THERMOSTAT_1);
-    th2 = digitalRead(THERMOSTAT_2);
+    th1 = !digitalRead(THERMOSTAT_1);
+    th2 = !digitalRead(THERMOSTAT_2);
     xQueueSend(thermostat1StateQueue, &th1, 0);
     xQueueSend(thermostat2StateQueue, &th2, 0);
   }
@@ -162,7 +173,7 @@ void TaskDirectRelay(void* pvParameters __attribute__((unused))) {
 void TaskPowerRelay(void* pvParameters __attribute__((unused))) {
   bool pwr_state = false;
   for (;;) {
-    if (main_data.fun1_rpm > MIN_RPM && main_data.fun2_rpm > MIN_RPM) {
+    if (!fnCheckProtections) {
       pwr_state = true;
     }
     else {
@@ -173,36 +184,68 @@ void TaskPowerRelay(void* pvParameters __attribute__((unused))) {
   }
 }
 
-void TaskMainData(void* pvParameters __attribute__((unused))) {
-  float voltage;
-  float sensors_voltage;
-  float sensor1_temp;
-  float sensor2_temp;
-  uint8_t fun_pwm_value;
-  uint16_t fun1_rpm;
-  uint16_t fun2_rpm;
-  bool thermostat1_state;
-  bool thermostat2_state;
-  bool power_relay_state;
-  bool sp_A_out_state;
-  bool sp_B_out_state;
-  bool direct_relay_state;
-
+void TaskMainDataHandler(void* pvParameters __attribute__((unused))) {
+  Data data;
   for (;;) {
-    if (xQueueReceive(voltageQueue, &voltage, 0) == pdPASS) main_data.voltage = voltage;
-    if (xQueueReceive(sensorsVoltageQueue, &sensors_voltage, 0) == pdPASS) main_data.sensors_voltage = sensors_voltage;
-    if (xQueueReceive(sensor1TempQueue, &sensor1_temp, 0) == pdPASS) main_data.sensor1_temp = sensor1_temp;
-    if (xQueueReceive(sensor2TempQueue, &sensor2_temp, 0) == pdPASS) main_data.sensor2_temp = sensor2_temp;
-    if (xQueueReceive(fun1RpmQueue, &fun1_rpm, 0) == pdPASS) main_data.fun1_rpm = fun1_rpm;
-    if (xQueueReceive(fun2RpmQueue, &fun2_rpm, 0) == pdPASS) main_data.fun2_rpm = fun2_rpm;
-    if (xQueueReceive(thermostat1StateQueue, &thermostat1_state, 0) == pdPASS) main_data.thermostat1_state = thermostat1_state;
-    if (xQueueReceive(thermostat2StateQueue, &thermostat2_state, 0) == pdPASS) main_data.thermostat2_state = thermostat2_state;
-    if (xQueueReceive(powerRelayStateQueue, &power_relay_state, 0) == pdPASS) main_data.power_relay_state = power_relay_state;
-    if (xQueueReceive(sp_A_stateQueue, &sp_A_out_state, 0) == pdPASS) main_data.sp_A_out_state = sp_A_out_state;
-    if (xQueueReceive(sp_B_stateQueue, &sp_B_out_state, 0) == pdPASS) main_data.sp_B_out_state = sp_B_out_state;
-    if (xQueueReceive(directRelayStateQueue, &direct_relay_state, 0) == pdPASS) main_data.direct_relay_state = direct_relay_state;
+    if (xQueueReceive(voltageQueue, &data.voltage, 0) == pdPASS) main_data.voltage = data.voltage;
+    if (xQueueReceive(sensorsVoltageQueue, &data.sensors_voltage, 0) == pdPASS) main_data.sensors_voltage = data.sensors_voltage;
+    if (xQueueReceive(sensor1TempQueue, &data.sensor1_temp, 0) == pdPASS) main_data.sensor1_temp = data.sensor1_temp;
+    if (xQueueReceive(sensor2TempQueue, &data.sensor2_temp, 0) == pdPASS) main_data.sensor2_temp = data.sensor2_temp;
+    if (xQueueReceive(fun1RpmQueue, &data.fun1_rpm, 0) == pdPASS) main_data.fun1_rpm = data.fun1_rpm;
+    if (xQueueReceive(fun2RpmQueue, &data.fun2_rpm, 0) == pdPASS) main_data.fun2_rpm = data.fun2_rpm;
+    if (xQueueReceive(thermostat1StateQueue, &data.over_temp_1, 0) == pdPASS) main_data.over_temp_1 = data.over_temp_1;
+    if (xQueueReceive(thermostat2StateQueue, &data.over_temp_2, 0) == pdPASS) main_data.over_temp_2 = data.over_temp_2;
+    if (xQueueReceive(powerRelayStateQueue, &data.power_relay_state, 0) == pdPASS) main_data.power_relay_state = data.power_relay_state;
+    if (xQueueReceive(sp_A_stateQueue, &data.sp_A_out_state, 0) == pdPASS) main_data.sp_A_out_state = data.sp_A_out_state;
+    if (xQueueReceive(sp_B_stateQueue, &data.sp_B_out_state, 0) == pdPASS) main_data.sp_B_out_state = data.sp_B_out_state;
+    if (xQueueReceive(directRelayStateQueue, &data.direct_relay_state, 0) == pdPASS) main_data.direct_relay_state = data.direct_relay_state;
     vTaskDelay(1);
   }
 }
 
+void TaskGetTemp(void* pvParameters __attribute__((unused))) {
+  uint8_t err_index = 0;
+  for (;;) {
+    if (ds1.ready()) {
+      float temp1 = FAULT_TEMP;
+      if (ds1.readTemp()) {
+        temp1 = ds1.getTemp();
+        Serial.println((String)"temp1: " + temp1);
+      }
+      else {
+        err_index = ERR_TEMP1;
+        xQueueSend(errorsQueue, &err_index, 0);
+        Serial.println("temp1 error");
+      }
+      xQueueSend(sensor1TempQueue, &temp1, 0);
+      ds1.requestTemp();
+    }
+    if (ds2.ready()) {
+      float temp2 = FAULT_TEMP;
+      if (ds2.readTemp()) {
+        temp2 = ds2.getTemp();
+        Serial.println((String)"temp2: " + temp2);
+      }
+      else {
+        err_index = ERR_TEMP1;
+        xQueueSend(errorsQueue, &err_index, 0);
+        Serial.println("temp2 error");
+      }
+      xQueueSend(sensor2TempQueue, &temp2, 0);
+      ds2.requestTemp();
+    }
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
+  }
+}
+
+bool fnCheckProtections() {
+  if (main_data.fun1_rpm < MIN_RPM || main_data.fun2_rpm < MIN_RPM
+    && main_data.sensor1_temp > MAX_TEMP && main_data.sensor2_temp > MAX_TEMP) {
+    return true;
+  }
+  for (uint8_t i = 0; i < ERR_QUANTITY; i++) {
+    if (errors[i])return;
+  }
+  return false;
+}
 

@@ -59,11 +59,23 @@
 #define HOUR         3600000        //ms  час
 
 #define MIN_RPM     200
+#define MAX_TEMP    55
+#define FAULT_TEMP  -100
 
 //timers
 #define START_DELAY                     1000  //ms задержка выполнения некоторых функций после подачи питания (пока датчики запустятся)
 #define WDT_RESET_PERIOD                1000  // us период сброса ADM705 < 1.6 sec
 #define TEMP_SENSORS_UPDATE_PERIOD      1000   //ms
+
+//errors
+#define ERR_UNDEF   0
+#define ERR_FUN1    1
+#define ERR_FUN2    2
+#define ERR_TEMP1   3
+#define ERR_TEMP2   4
+#define ERR_OVERTEMP1 5
+#define ERR_OVERTEMP2 6
+#define ERR_QUANTITY    7
 
 
 #endif

@@ -21,18 +21,20 @@ struct InitValuesStruct { // init setpoints
 struct Data
 {
   float voltage;                   //power supply voltage 
-  float sensors_voltage;          
+  float sensors_voltage;
   float sensor1_temp;
   float sensor2_temp;
   uint8_t fun_pwm_value;
   uint16_t fun1_rpm;
   uint16_t fun2_rpm;
-  bool thermostat1_state;
-  bool thermostat2_state;
+  bool over_temp_1;
+  bool over_temp_2;
   bool power_relay_state;
   bool sp_A_out_state;
   bool sp_B_out_state;
   bool direct_relay_state;
 } main_data;
+
+bool errors[ERR_QUANTITY] = { 0, };
 
 #endif
