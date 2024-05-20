@@ -37,4 +37,7 @@ struct Data
 
 bool errors[ERR_QUANTITY] = { 0, };
 
+uint16_t nbTopsFan1;
+uint16_t nbTopsFan2;
+
 #endif

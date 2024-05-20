@@ -17,6 +17,7 @@ void TaskDirectRelay(void* pvParameters);
 void TaskPowerRelay(void* pvParameters);
 void TaskMainDataHandler(void* pvParameters);
 void TaskGetTemp(void* pvParameters);
+void TaskGetRpm(void* pvParameters);
 
 SemaphoreHandle_t LoudnessButtonSemaphore;
 SemaphoreHandle_t DirectButtonSemaphore;
@@ -46,9 +47,12 @@ GyverDS18Single ds1(ONE_WIRE_1_PIN);
 GyverDS18Single ds2(ONE_WIRE_2_PIN);
 
 bool fnCheckProtections();
+uint16_t fnCalcRpm(uint16_t* sourceRpm);
+void fnRpm1();
+void fnRpm2();
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   ds1.requestTemp();
   ds2.requestTemp();
 
@@ -73,6 +77,7 @@ void setup() {
   xTaskCreate(TaskPowerRelay, "Power relay task", 128, NULL, 1, NULL);
   xTaskCreate(TaskMainDataHandler, "Main data task", 128, NULL, 3, NULL);
   xTaskCreate(TaskGetTemp, "Get temp task", 128, NULL, 2, NULL);
+  xTaskCreate(TaskGetRpm, "Get rpm task", 128, NULL, 2, NULL);
 
   LoudnessButtonSemaphore = xSemaphoreCreateBinary();
   DirectButtonSemaphore = xSemaphoreCreateBinary();
@@ -93,12 +98,15 @@ void setup() {
   sp_B_stateQueue = xQueueCreate(1, sizeof(bool));
   directRelayStateQueue = xQueueCreate(1, sizeof(bool));
   errorsQueue = xQueueCreate(6, sizeof(bool));
+
+  attachInterrupt(3, fnRpm1, RISING);
+  attachInterrupt(2, fnRpm2, RISING);
 }
 
 void loop() {
 
 }
-//******************************************************************
+//******************** tasks **********************************************
 
 void TaskInputsUpdate(void* pvParameters __attribute__((unused))) {
   bool th1 = false;
@@ -238,6 +246,20 @@ void TaskGetTemp(void* pvParameters __attribute__((unused))) {
   }
 }
 
+void TaskGetRpm(void* pvParameters __attribute__((unused))) {
+  for (;;) {
+    taskENTER_CRITICAL();
+    uint16_t rpm1, rpm2 = 0;
+    rpm1 = fnCalcRpm(&nbTopsFan1);
+    rpm2 = fnCalcRpm(&nbTopsFan2);
+    taskEXIT_CRITICAL();
+    xQueueSend(fun1RpmQueue, &rpm1, 0);
+    xQueueSend(fun2RpmQueue, &rpm2, 0);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+  }
+}
+
+//***************************** functions *************************************************
 bool fnCheckProtections() {
   if (main_data.fun1_rpm < MIN_RPM || main_data.fun2_rpm < MIN_RPM
     && main_data.sensor1_temp > MAX_TEMP && main_data.sensor2_temp > MAX_TEMP) {
@@ -249,3 +271,19 @@ bool fnCheckProtections() {
   return false;
 }
 
+uint16_t fnCalcRpm(uint16_t* sourceRpm) {
+  if (*sourceRpm == 0) {
+    return 0;
+  }
+  uint16_t res = (*sourceRpm * 60) / 2;
+  *sourceRpm = 0;
+  return res;
+}
+
+void fnRpm1() {
+  nbTopsFan1++;
+}
+
+void fnRpm2() {
+  nbTopsFan2++;
+}
