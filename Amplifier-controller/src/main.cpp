@@ -18,6 +18,7 @@ void TaskPowerRelay(void* pvParameters);
 void TaskMainDataHandler(void* pvParameters);
 void TaskGetTemp(void* pvParameters);
 void TaskGetRpm(void* pvParameters);
+void TaskCheckProtections(void* pvParameters);
 
 SemaphoreHandle_t LoudnessButtonSemaphore;
 SemaphoreHandle_t DirectButtonSemaphore;
@@ -46,7 +47,7 @@ GButton btn_sp_B(SPEAKERS_B_BUTTON_IN);
 GyverDS18Single ds1(ONE_WIRE_1_PIN);
 GyverDS18Single ds2(ONE_WIRE_2_PIN);
 
-bool fnCheckProtections();
+bool fnCheckErrors();
 uint16_t fnCalcRpm(uint16_t* sourceRpm);
 void fnRpm1();
 void fnRpm2();
@@ -78,6 +79,7 @@ void setup() {
   xTaskCreate(TaskMainDataHandler, "Main data task", 128, NULL, 3, NULL);
   xTaskCreate(TaskGetTemp, "Get temp task", 128, NULL, 2, NULL);
   xTaskCreate(TaskGetRpm, "Get rpm task", 128, NULL, 2, NULL);
+  xTaskCreate(TaskCheckProtections, "Check protections task", 128, NULL, 3, NULL);
 
   LoudnessButtonSemaphore = xSemaphoreCreateBinary();
   DirectButtonSemaphore = xSemaphoreCreateBinary();
@@ -179,9 +181,10 @@ void TaskDirectRelay(void* pvParameters __attribute__((unused))) {
 }
 
 void TaskPowerRelay(void* pvParameters __attribute__((unused))) {
+  vTaskDelay(4000 / portTICK_PERIOD_MS);
   bool pwr_state = false;
   for (;;) {
-    if (!fnCheckProtections) {
+    if (!fnCheckErrors) {
       pwr_state = true;
     }
     else {
@@ -259,14 +262,21 @@ void TaskGetRpm(void* pvParameters __attribute__((unused))) {
   }
 }
 
-//***************************** functions *************************************************
-bool fnCheckProtections() {
-  if (main_data.fun1_rpm < MIN_RPM || main_data.fun2_rpm < MIN_RPM
-    && main_data.sensor1_temp > MAX_TEMP && main_data.sensor2_temp > MAX_TEMP) {
-    return true;
+void TaskCheckProtections(void* pvParameters __attribute__((unused))) {
+  for (;;) {
+    if (main_data.fun1_rpm < MIN_RPM)errors[ERR_FUN1] = true;
+    if (main_data.fun2_rpm < MIN_RPM)errors[ERR_FUN2] = true;
+    if (main_data.sensor1_temp > MAX_TEMP)errors[ERR_TEMP1] = true;
+    if (main_data.sensor2_temp > MAX_TEMP)errors[ERR_TEMP2] = true;
+    if (main_data.over_temp_1) errors[ERR_OVERTEMP1] = true;
+    if (main_data.over_temp_2) errors[ERR_OVERTEMP2] = true;
   }
+}
+
+//***************************** functions *************************************************
+bool fnCheckErrors() {
   for (uint8_t i = 0; i < ERR_QUANTITY; i++) {
-    if (errors[i])return;
+    if (errors[i])return true;
   }
   return false;
 }
