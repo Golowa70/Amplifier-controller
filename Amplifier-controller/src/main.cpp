@@ -7,46 +7,37 @@
 #include "AVR_PWM.h"
 #define pinToUse      44            // Timer5C on Mega
 AVR_PWM* PWM_Instance;
-float frequency;
-float dutyCycle;
+float pwmFreq = 20000;
+float pwmDuty = 20;
 
 #include "defines.h"
 #include "variables.h"
 #include "init_functions.h"
 
-
-void TaskOutputsUpdate(void* pvParameters);
-void TaskInputsUpdate(void* pvParameters);
+void TaskThermostate(void* pvParameters);
 void TaskButtonsPolling(void* pvParameters);
 void TaskSpeakersRelays(void* pvParameters);
 void TaskDirectRelay(void* pvParameters);
+void TaskLoudnes(void* pvParameters);
 void TaskPowerRelay(void* pvParameters);
 void TaskMainDataHandler(void* pvParameters);
 void TaskGetTemp(void* pvParameters);
 void TaskGetRpm(void* pvParameters);
 void TaskCheckProtections(void* pvParameters);
 void TaskStatusLed(void* pvParameters);
-
-SemaphoreHandle_t LoudnessButtonSemaphore;
-SemaphoreHandle_t DirectButtonSemaphore;
-SemaphoreHandle_t Sp_A_ButtonSemaphore;
-SemaphoreHandle_t Sp_B_ButtonSemaphore;
+void TaskMain(void* pvParameters);
 
 QueueHandle_t voltageQueue;
 QueueHandle_t sensorsVoltageQueue;
-QueueHandle_t sensor1TempQueue;
-QueueHandle_t sensor2TempQueue;
 QueueHandle_t funPwmQueue;
-QueueHandle_t fun1RpmQueue;
-QueueHandle_t fun2RpmQueue;
-QueueHandle_t thermostat1StateQueue;
-QueueHandle_t thermostat2StateQueue;
 QueueHandle_t powerRelayStateQueue;
 QueueHandle_t sp_A_stateQueue;
 QueueHandle_t sp_B_stateQueue;
 QueueHandle_t directRelayStateQueue;
-QueueHandle_t errorsQueue;
+QueueHandle_t loudnesQueue;
 QueueHandle_t statusLedQueue;
+QueueHandle_t systemModeQueue;
+QueueHandle_t mainDataQueue; //TODO
 
 GButton btn_loudness(LOUDNESS_REMOTE_BUTTON_IN);
 GButton btn_direct(DIRECT_BUTTON_IN);
@@ -71,7 +62,7 @@ void setup() {
   btn_sp_B.setTickMode(AUTO);
 
   xTaskCreate(
-    TaskInputsUpdate, "InputsUpdate" // A name just for humans
+    TaskThermostate, "InputsUpdate" // A name just for humans
     ,
     192 // This stack size can be checked & adjusted by reading the Stack Highwater //128
     ,
@@ -79,47 +70,38 @@ void setup() {
     ,
     NULL);
 
-  xTaskCreate(TaskOutputsUpdate, "Inputs update task", 128, NULL, 2, NULL);
   xTaskCreate(TaskButtonsPolling, "Buttons polling task", 128, NULL, 2, NULL);
   xTaskCreate(TaskSpeakersRelays, "Speakers outputs task", 128, NULL, 1, NULL);
   xTaskCreate(TaskDirectRelay, "Direct relay task", 128, NULL, 1, NULL);
+  xTaskCreate(TaskLoudnes, "Loudnes task", 128, NULL, 2, NULL);
   xTaskCreate(TaskPowerRelay, "Power relay task", 128, NULL, 1, NULL);
-  xTaskCreate(TaskMainDataHandler, "Main data task", 128, NULL, 3, NULL);
+  xTaskCreate(TaskMainDataHandler, "Main data task", 512, NULL, 3, NULL);
   xTaskCreate(TaskGetTemp, "Get temp task", 128, NULL, 2, NULL);
   xTaskCreate(TaskGetRpm, "Get rpm task", 128, NULL, 2, NULL);
   xTaskCreate(TaskCheckProtections, "Check protections task", 128, NULL, 3, NULL);
   xTaskCreate(TaskStatusLed, "Status led task", 128, NULL, 1, NULL);
-
-  LoudnessButtonSemaphore = xSemaphoreCreateBinary();
-  DirectButtonSemaphore = xSemaphoreCreateBinary();
-  Sp_A_ButtonSemaphore = xSemaphoreCreateBinary();
-  Sp_B_ButtonSemaphore = xSemaphoreCreateBinary();
+  xTaskCreate(TaskMain, "Main task", 128, NULL, 2, NULL);
 
   voltageQueue = xQueueCreate(1, sizeof(float));
   sensorsVoltageQueue = xQueueCreate(1, sizeof(float));
-  sensor1TempQueue = xQueueCreate(1, sizeof(float));
-  sensor2TempQueue = xQueueCreate(1, sizeof(float));
-  funPwmQueue = xQueueCreate(1, sizeof(uint8_t));
-  fun1RpmQueue = xQueueCreate(1, sizeof(uint16_t));
-  fun2RpmQueue = xQueueCreate(1, sizeof(uint16_t));
-  thermostat1StateQueue = xQueueCreate(1, sizeof(bool));
-  thermostat2StateQueue = xQueueCreate(1, sizeof(bool));
+  funPwmQueue = xQueueCreate(1, sizeof(uint8_t));//?
   powerRelayStateQueue = xQueueCreate(1, sizeof(bool));
   sp_A_stateQueue = xQueueCreate(1, sizeof(bool));
   sp_B_stateQueue = xQueueCreate(1, sizeof(bool));
   directRelayStateQueue = xQueueCreate(1, sizeof(bool));
-  errorsQueue = xQueueCreate(6, sizeof(bool));
+  loudnesQueue = xQueueCreate(1, sizeof(bool));
   statusLedQueue = xQueueCreate(6, sizeof(uint8_t));
+  systemModeQueue = xQueueCreate(3, sizeof(uint8_t));
+  mainDataQueue = xQueueCreate(10, sizeof(Param));
 
   attachInterrupt(3, fnRpm1, RISING);
   attachInterrupt(2, fnRpm2, RISING);
 
-  PWM_Instance = new AVR_PWM(pinToUse, 20000, 50);
-  // PWM_Instance->setPWM(pinToUse, frequency, dutyCycle);
+  PWM_Instance = new AVR_PWM(pinToUse, 20000, 0);
 
   vTaskStartScheduler();
-  uint8_t mode = START;
-  xQueueSend(statusLedQueue, &mode, 0);
+  uint8_t mode = START_MODE;
+  xQueueSend(systemModeQueue, &mode, 0);
 }
 
 void loop() {
@@ -127,43 +109,44 @@ void loop() {
 }
 //******************** tasks **********************************************
 
-void TaskInputsUpdate(void* pvParameters __attribute__((unused))) {
+void TaskThermostate(void* pvParameters __attribute__((unused))) {
   bool th1 = false;
   bool  th2 = false;
   for (;;) {
     th1 = !digitalRead(THERMOSTAT_1);
     th2 = !digitalRead(THERMOSTAT_2);
-    xQueueSend(thermostat1StateQueue, &th1, 0);
-    xQueueSend(thermostat2StateQueue, &th2, 0);
+    if (th1)errors[THERMOSTAT_1] = true;
+    if (th2)errors[THERMOSTAT_2] = true;
+    //TODO send to main data
   }
 }
 
-
-void TaskOutputsUpdate(void* pvParameters __attribute__((unused))) {
-  for (;;) {
-    digitalWrite(POWER_RELAY_OUT, main_data.power_relay_state);
-    digitalWrite(SPEAKERS_A_OUT, main_data.sp_A_out_state);
-    digitalWrite(SPEAKERS_B_OUT, main_data.sp_B_out_state);
-    digitalWrite(DIRECT_INPUT_RELAY_OUT, main_data.direct_relay_state);
-  }
-}
 void TaskButtonsPolling(void* pvParameters __attribute__((unused))) {
+  bool loudnes_btn = false;
+  bool direct_btn = false;
+  bool sp_A_btn = false;
+  bool sp_B_btn = false;
   for (;;) {
     if (btn_loudness.isClick()) {
       Serial.println("Button loudness");
-      xSemaphoreGive(LoudnessButtonSemaphore);
+      loudnes_btn = !loudnes_btn;
+      xQueueSend(loudnesQueue, &loudnes_btn, 0);
+      //TODO
     }
     if (btn_direct.isClick()) {
       Serial.println("Button direct");
-      xSemaphoreGive(DirectButtonSemaphore);
+      direct_btn = !direct_btn;
+      xQueueSend(directRelayStateQueue, &direct_btn, 0);
     }
     if (btn_sp_A.isClick()) {
       Serial.println("Button sp A");
-      xSemaphoreGive(Sp_A_ButtonSemaphore);
+      sp_A_btn = !sp_A_btn;
+      xQueueSend(sp_A_stateQueue, &direct_btn, 0);
     }
     if (btn_sp_B.isClick()) {
       Serial.println("Button sp B");
-      xSemaphoreGive(Sp_B_ButtonSemaphore);
+      sp_B_btn = !sp_B_btn;
+      xQueueSend(sp_B_stateQueue, &direct_btn, 0);
     }
   }
 }
@@ -171,68 +154,123 @@ void TaskButtonsPolling(void* pvParameters __attribute__((unused))) {
 void TaskSpeakersRelays(void* pvParameters __attribute__((unused))) {
   bool sp_A_state = false;
   bool sp_B_state = false;
-  vTaskDelay(5000 / portTICK_PERIOD_MS);
   for (;;) {
-    if (xSemaphoreTake(Sp_A_ButtonSemaphore, portMAX_DELAY) == pdPASS) {
-      sp_A_state = true;
-      sp_B_state = false;
-      xQueueSend(sp_A_stateQueue, &sp_A_state, 0);
-      xQueueSend(sp_B_stateQueue, &sp_B_state, 0);
+    if (xQueueReceive(sp_A_stateQueue, &sp_A_state, 0) == pdPASS) {
+      digitalWrite(SPEAKERS_A_OUT, sp_A_state);
+      if (sp_A_state)digitalWrite(SPEAKERS_B_OUT, false);
+      //TODO send to main data
     }
-    if (xSemaphoreTake(Sp_B_ButtonSemaphore, portMAX_DELAY) == pdPASS) {
-      sp_A_state = false;
-      sp_B_state = true;
-      xQueueSend(sp_A_stateQueue, &sp_A_state, 0);
-      xQueueSend(sp_B_stateQueue, &sp_B_state, 0);
+    if (xQueueReceive(sp_B_stateQueue, &sp_B_state, 0) == pdPASS) {
+      digitalWrite(SPEAKERS_B_OUT, sp_B_state);
+      if (sp_B_state)digitalWrite(SPEAKERS_A_OUT, false);
+      //TODO send to main data
     }
+    vTaskDelay(1);
   }
 }
 
 void TaskDirectRelay(void* pvParameters __attribute__((unused))) {
   bool dr_state = false;
   for (;;) {
-    if (xSemaphoreTake(Sp_A_ButtonSemaphore, portMAX_DELAY) == pdPASS) {
-      dr_state = !main_data.direct_relay_state;
-      xQueueSend(directRelayStateQueue, &dr_state, 0);
+    if (xQueueReceive(directRelayStateQueue, &dr_state, 0) == pdPASS) {
+      digitalWrite(DIRECT_INPUT_RELAY_OUT, dr_state);
+      //TODO send to main data
     }
+    vTaskDelay(1);
+  }
+}
+
+void TaskLoudnes(void* pvParameters __attribute__((unused))) {
+  bool loudnes = false;
+  for (;;) {
+    if (xQueueReceive(loudnesQueue, &loudnes, 0) == pdPASS) {
+      //TODO
+      //TODO send to main data
+    }
+    vTaskDelay(1);
   }
 }
 
 void TaskPowerRelay(void* pvParameters __attribute__((unused))) {
-  vTaskDelay(5000 / portTICK_PERIOD_MS);
   bool pwr_state = false;
-  uint8_t mode = OFF;
   for (;;) {
-    if (!fnCheckErrors) {
-      pwr_state = true;
-      mode = RUN;
+    if (xQueueReceive(powerRelayStateQueue, &pwr_state, 0) == pdPASS) {
+      digitalWrite(POWER_RELAY_OUT, pwr_state);
+      //TODO send to main data
     }
-    else {
-      pwr_state = false;
-      mode = ERROR;
-    }
-    xQueueSend(statusLedQueue, &mode, 0);
-    xQueueSend(powerRelayStateQueue, &pwr_state, 0);
     vTaskDelay(1);
   }
 }
 
-void TaskMainDataHandler(void* pvParameters __attribute__((unused))) {
-  Data data;
+void TaskMainDataHandler(void* pvParameters __attribute__((unused))) { //TODO
+  Param param;
+
   for (;;) {
-    if (xQueueReceive(voltageQueue, &data.voltage, 0) == pdPASS) main_data.voltage = data.voltage;
-    if (xQueueReceive(sensorsVoltageQueue, &data.sensors_voltage, 0) == pdPASS) main_data.sensors_voltage = data.sensors_voltage;
-    if (xQueueReceive(sensor1TempQueue, &data.sensor1_temp, 0) == pdPASS) main_data.sensor1_temp = data.sensor1_temp;
-    if (xQueueReceive(sensor2TempQueue, &data.sensor2_temp, 0) == pdPASS) main_data.sensor2_temp = data.sensor2_temp;
-    if (xQueueReceive(fun1RpmQueue, &data.fun1_rpm, 0) == pdPASS) main_data.fun1_rpm = data.fun1_rpm;
-    if (xQueueReceive(fun2RpmQueue, &data.fun2_rpm, 0) == pdPASS) main_data.fun2_rpm = data.fun2_rpm;
-    if (xQueueReceive(thermostat1StateQueue, &data.over_temp_1, 0) == pdPASS) main_data.over_temp_1 = data.over_temp_1;
-    if (xQueueReceive(thermostat2StateQueue, &data.over_temp_2, 0) == pdPASS) main_data.over_temp_2 = data.over_temp_2;
-    if (xQueueReceive(powerRelayStateQueue, &data.power_relay_state, 0) == pdPASS) main_data.power_relay_state = data.power_relay_state;
-    if (xQueueReceive(sp_A_stateQueue, &data.sp_A_out_state, 0) == pdPASS) main_data.sp_A_out_state = data.sp_A_out_state;
-    if (xQueueReceive(sp_B_stateQueue, &data.sp_B_out_state, 0) == pdPASS) main_data.sp_B_out_state = data.sp_B_out_state;
-    if (xQueueReceive(directRelayStateQueue, &data.direct_relay_state, 0) == pdPASS) main_data.direct_relay_state = data.direct_relay_state;
-    vTaskDelay(1);
+    if (xQueueReceive(powerRelayStateQueue, &param, 0) == pdPASS) {
+      switch (param.key)
+      {
+      case VOLTAGE:
+        /* code */
+        break;
+
+      case SENSORS_VOLTAGE:
+        /* code */
+        break;
+
+      case SENSOR1_TEMP:
+        /* code */
+        break;
+
+      case SENSOR2_TEMP:
+        /* code */
+        break;
+
+      case FUN_PWM:
+        /* code */
+        break;
+
+      case SYS_MODE:
+        /* code */
+        break;
+
+      case FUN1_RPM:
+        /* code */
+        break;
+
+      case FUN2_RPM:
+        /* code */
+        break;
+
+      case OVER_TEMP1:
+        /* code */
+        break;
+
+      case OVER_TEMP2:
+        /* code */
+        break;
+
+      case POWER_RELAY:
+        /* code */
+        break;
+
+      case SP_A:
+        /* code */
+        break;
+
+      case SP_B:
+        /* code */
+        break;
+
+      case DIRECT_RELAY:
+        /* code */
+        break;
+
+      default:
+        /* code */
+        break;
+      }
+    }
+
   }
 }
 
@@ -246,11 +284,11 @@ void TaskGetTemp(void* pvParameters __attribute__((unused))) {
         Serial.println((String)"temp1: " + temp1);
       }
       else {
-        err_index = ERR_TEMP1;
-        xQueueSend(errorsQueue, &err_index, 0);
+        errors[ERR_TEMP1] = true;
         Serial.println("temp1 error");
       }
-      xQueueSend(sensor1TempQueue, &temp1, 0);
+      if (temp1 > MAX_TEMP)errors[ERR_TEMP1] = true;
+      // TODO send to main data
       ds1.requestTemp();
     }
     if (ds2.ready()) {
@@ -260,11 +298,11 @@ void TaskGetTemp(void* pvParameters __attribute__((unused))) {
         Serial.println((String)"temp2: " + temp2);
       }
       else {
-        err_index = ERR_TEMP1;
-        xQueueSend(errorsQueue, &err_index, 0);
+        errors[ERR_TEMP2] = true;
         Serial.println("temp2 error");
       }
-      xQueueSend(sensor2TempQueue, &temp2, 0);
+      if (temp2 > MAX_TEMP)errors[ERR_TEMP2] = true;
+      // TODO send to main data
       ds2.requestTemp();
     }
     vTaskDelay(2000 / portTICK_PERIOD_MS);
@@ -276,42 +314,41 @@ void TaskGetRpm(void* pvParameters __attribute__((unused))) {
     taskENTER_CRITICAL();
     uint16_t rpm1, rpm2 = 0;
     rpm1 = fnCalcRpm(&nbTopsFan1);
+    if (rpm1 < MIN_RPM)errors[ERR_FUN1] = true;
+    // TODO send to main data
     rpm2 = fnCalcRpm(&nbTopsFan2);
+    if (rpm2 < MIN_RPM)errors[ERR_FUN2] = true;
+    // TODO send to main data
     taskEXIT_CRITICAL();
-    xQueueSend(fun1RpmQueue, &rpm1, 0);
-    xQueueSend(fun2RpmQueue, &rpm2, 0);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }
 
 void TaskCheckProtections(void* pvParameters __attribute__((unused))) {
+  uint8_t mode = ERROR_MODE;
+  vTaskDelay(5000 / portTICK_PERIOD_MS);
   for (;;) {
-    if (main_data.fun1_rpm < MIN_RPM)errors[ERR_FUN1] = true;
-    if (main_data.fun2_rpm < MIN_RPM)errors[ERR_FUN2] = true;
-    if (main_data.sensor1_temp > MAX_TEMP)errors[ERR_TEMP1] = true;
-    if (main_data.sensor2_temp > MAX_TEMP)errors[ERR_TEMP2] = true;
-    if (main_data.over_temp_1) errors[ERR_OVERTEMP1] = true;
-    if (main_data.over_temp_2) errors[ERR_OVERTEMP2] = true;
+    if (fnCheckErrors)xQueueSend(systemModeQueue, &mode, 0);
   }
 }
 
 void TaskStatusLed(void* pvParameters __attribute__((unused))) {
-  uint8_t mode = OFF;
+  uint8_t mode = LED_OFF;
   for (;;) {
     if (xQueueReceive(statusLedQueue, &mode, 0) == pdPASS) {
       switch (mode) {
-      case START:
+      case LED_SLOW:
         digitalWrite(POWER_BUTTON_LED, !digitalRead(POWER_BUTTON_LED));
         vTaskDelay(500 / portTICK_PERIOD_MS);
         break;
-      case RUN:
+      case LED_ON:
         digitalWrite(POWER_BUTTON_LED, true);
         break;
-      case ERROR:
+      case LED_FAST:
         digitalWrite(POWER_BUTTON_LED, !digitalRead(POWER_BUTTON_LED));
         vTaskDelay(100 / portTICK_PERIOD_MS);
         break;
-      case OFF:
+      case LED_OFF:
         digitalWrite(POWER_BUTTON_LED, false);
         break;
       default:
@@ -320,6 +357,59 @@ void TaskStatusLed(void* pvParameters __attribute__((unused))) {
       }
     }
   }
+}
+
+void TaskMain(void* pvParameters __attribute__((unused))) {
+  uint8_t mode = OFF_MODE;
+  uint8_t led_mode = LED_OFF;
+  bool power_relay = false;
+  for (;;) {
+    if (xQueueReceive(systemModeQueue, &mode, 0) == pdPASS) {
+      switch (mode) {
+
+      case START_MODE:
+        PWM_Instance->setPWM(pinToUse, pwmFreq, pwmDuty);
+        led_mode = LED_SLOW;
+        xQueueSend(statusLedQueue, &led_mode, 0);
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+        mode = RUN_MODE;
+        xQueueSend(systemModeQueue, &mode, 0);
+        break;
+
+      case RUN_MODE:
+        led_mode = LED_ON;
+        xQueueSend(statusLedQueue, &led_mode, 0);
+        power_relay = true;
+        xQueueSend(powerRelayStateQueue, &power_relay, 0);
+        break;
+
+      case ERROR_MODE:
+        led_mode = LED_FAST;
+        xQueueSend(statusLedQueue, &led_mode, 0);
+        power_relay = false;
+        xQueueSend(powerRelayStateQueue, &power_relay, 0);
+        break;
+
+      case OFF_MODE:
+        led_mode = LED_OFF;
+        xQueueSend(statusLedQueue, &led_mode, 0);
+        power_relay = false;
+        xQueueSend(powerRelayStateQueue, &power_relay, 0);
+        break;
+
+      default:
+        led_mode = LED_OFF;
+        xQueueSend(statusLedQueue, &led_mode, 0);
+        power_relay = false;
+        xQueueSend(powerRelayStateQueue, &power_relay, 0);
+        break;
+      }
+    }
+
+
+  }
+
+
 }
 
 //***************************** functions *************************************************

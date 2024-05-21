@@ -20,10 +20,10 @@ struct InitValuesStruct { // init setpoints
 //*********** Main data *******************************************************************************
 struct Data
 {
-  float voltage;                   //power supply voltage 
-  float sensors_voltage;
-  float sensor1_temp;
-  float sensor2_temp;
+  uint16_t voltage;                   //power supply voltage 
+  uint16_t sensors_voltage;
+  uint16_t sensor1_temp;
+  uint16_t sensor2_temp;
   uint8_t fun_pwm_value;
   uint8_t mode;
   uint16_t fun1_rpm;
@@ -35,6 +35,11 @@ struct Data
   bool sp_B_out_state;
   bool direct_relay_state;
 } main_data;
+
+struct Param {
+  uint8_t key;
+  uint16_t value;
+}param;
 
 bool errors[ERR_QUANTITY] = { 0, };
 

@@ -78,10 +78,32 @@
 #define ERR_QUANTITY    7
 
 
-//modes
-#define OFF     0
-#define START   1
-#define RUN     2   
-#define ERROR   3
+//led modes
+#define LED_OFF     0
+#define LED_SLOW    1
+#define LED_ON      2   
+#define LED_FAST    3
+
+//system modes
+#define OFF_MODE    0
+#define START_MODE  1
+#define RUN_MODE    2
+#define ERROR_MODE  3
+
+//param keys
+#define VOLTAGE             0 
+#define SENSORS_VOLTAGE     1
+#define SENSOR1_TEMP        2
+#define SENSOR2_TEMP        3
+#define FUN_PWM             4
+#define SYS_MODE            5
+#define FUN1_RPM            6
+#define FUN2_RPM            7
+#define OVER_TEMP1          8
+#define OVER_TEMP2          9
+#define POWER_RELAY         10
+#define SP_A                11
+#define SP_B                12
+#define DIRECT_RELAY        13
 
 #endif
