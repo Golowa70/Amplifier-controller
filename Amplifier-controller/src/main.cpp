@@ -4,6 +4,12 @@
 #include "GyverButton.h"
 #include <GyverDS18.h>
 
+#include "AVR_PWM.h"
+#define pinToUse      44            // Timer5C on Mega
+AVR_PWM* PWM_Instance;
+float frequency;
+float dutyCycle;
+
 #include "defines.h"
 #include "variables.h"
 #include "init_functions.h"
@@ -103,6 +109,9 @@ void setup() {
 
   attachInterrupt(3, fnRpm1, RISING);
   attachInterrupt(2, fnRpm2, RISING);
+
+  PWM_Instance = new AVR_PWM(pinToUse, 20000, 50);
+  // PWM_Instance->setPWM(pinToUse, frequency, dutyCycle);
 }
 
 void loop() {
