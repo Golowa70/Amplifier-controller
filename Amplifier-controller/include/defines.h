@@ -78,4 +78,10 @@
 #define ERR_QUANTITY    7
 
 
+//modes
+#define OFF     0
+#define START   1
+#define RUN     2   
+#define ERROR   3
+
 #endif

@@ -25,6 +25,7 @@ struct Data
   float sensor1_temp;
   float sensor2_temp;
   uint8_t fun_pwm_value;
+  uint8_t mode;
   uint16_t fun1_rpm;
   uint16_t fun2_rpm;
   bool over_temp_1;

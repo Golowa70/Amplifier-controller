@@ -25,6 +25,7 @@ void TaskMainDataHandler(void* pvParameters);
 void TaskGetTemp(void* pvParameters);
 void TaskGetRpm(void* pvParameters);
 void TaskCheckProtections(void* pvParameters);
+void TaskStatusLed(void* pvParameters);
 
 SemaphoreHandle_t LoudnessButtonSemaphore;
 SemaphoreHandle_t DirectButtonSemaphore;
@@ -45,6 +46,7 @@ QueueHandle_t sp_A_stateQueue;
 QueueHandle_t sp_B_stateQueue;
 QueueHandle_t directRelayStateQueue;
 QueueHandle_t errorsQueue;
+QueueHandle_t statusLedQueue;
 
 GButton btn_loudness(LOUDNESS_REMOTE_BUTTON_IN);
 GButton btn_direct(DIRECT_BUTTON_IN);
@@ -86,6 +88,7 @@ void setup() {
   xTaskCreate(TaskGetTemp, "Get temp task", 128, NULL, 2, NULL);
   xTaskCreate(TaskGetRpm, "Get rpm task", 128, NULL, 2, NULL);
   xTaskCreate(TaskCheckProtections, "Check protections task", 128, NULL, 3, NULL);
+  xTaskCreate(TaskStatusLed, "Status led task", 128, NULL, 1, NULL);
 
   LoudnessButtonSemaphore = xSemaphoreCreateBinary();
   DirectButtonSemaphore = xSemaphoreCreateBinary();
@@ -106,12 +109,17 @@ void setup() {
   sp_B_stateQueue = xQueueCreate(1, sizeof(bool));
   directRelayStateQueue = xQueueCreate(1, sizeof(bool));
   errorsQueue = xQueueCreate(6, sizeof(bool));
+  statusLedQueue = xQueueCreate(6, sizeof(uint8_t));
 
   attachInterrupt(3, fnRpm1, RISING);
   attachInterrupt(2, fnRpm2, RISING);
 
   PWM_Instance = new AVR_PWM(pinToUse, 20000, 50);
   // PWM_Instance->setPWM(pinToUse, frequency, dutyCycle);
+
+  vTaskStartScheduler();
+  uint8_t mode = START;
+  xQueueSend(statusLedQueue, &mode, 0);
 }
 
 void loop() {
@@ -163,6 +171,7 @@ void TaskButtonsPolling(void* pvParameters __attribute__((unused))) {
 void TaskSpeakersRelays(void* pvParameters __attribute__((unused))) {
   bool sp_A_state = false;
   bool sp_B_state = false;
+  vTaskDelay(5000 / portTICK_PERIOD_MS);
   for (;;) {
     if (xSemaphoreTake(Sp_A_ButtonSemaphore, portMAX_DELAY) == pdPASS) {
       sp_A_state = true;
@@ -190,15 +199,19 @@ void TaskDirectRelay(void* pvParameters __attribute__((unused))) {
 }
 
 void TaskPowerRelay(void* pvParameters __attribute__((unused))) {
-  vTaskDelay(4000 / portTICK_PERIOD_MS);
+  vTaskDelay(5000 / portTICK_PERIOD_MS);
   bool pwr_state = false;
+  uint8_t mode = OFF;
   for (;;) {
     if (!fnCheckErrors) {
       pwr_state = true;
+      mode = RUN;
     }
     else {
       pwr_state = false;
+      mode = ERROR;
     }
+    xQueueSend(statusLedQueue, &mode, 0);
     xQueueSend(powerRelayStateQueue, &pwr_state, 0);
     vTaskDelay(1);
   }
@@ -279,6 +292,33 @@ void TaskCheckProtections(void* pvParameters __attribute__((unused))) {
     if (main_data.sensor2_temp > MAX_TEMP)errors[ERR_TEMP2] = true;
     if (main_data.over_temp_1) errors[ERR_OVERTEMP1] = true;
     if (main_data.over_temp_2) errors[ERR_OVERTEMP2] = true;
+  }
+}
+
+void TaskStatusLed(void* pvParameters __attribute__((unused))) {
+  uint8_t mode = OFF;
+  for (;;) {
+    if (xQueueReceive(statusLedQueue, &mode, 0) == pdPASS) {
+      switch (mode) {
+      case START:
+        digitalWrite(POWER_BUTTON_LED, !digitalRead(POWER_BUTTON_LED));
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        break;
+      case RUN:
+        digitalWrite(POWER_BUTTON_LED, true);
+        break;
+      case ERROR:
+        digitalWrite(POWER_BUTTON_LED, !digitalRead(POWER_BUTTON_LED));
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        break;
+      case OFF:
+        digitalWrite(POWER_BUTTON_LED, false);
+        break;
+      default:
+        digitalWrite(POWER_BUTTON_LED, false);
+        break;
+      }
+    }
   }
 }
 
