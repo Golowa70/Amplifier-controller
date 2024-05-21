@@ -218,11 +218,11 @@ void TaskMainDataHandler(void* pvParameters __attribute__((unused))) { //TODO
         break;
 
       case SENSOR1_TEMP:
-        /* code */
+        main_data.sensor1_temp = param.value;
         break;
 
       case SENSOR2_TEMP:
-        /* code */
+        main_data.sensor2_temp = param.value;
         break;
 
       case FUN_PWM:
@@ -230,7 +230,7 @@ void TaskMainDataHandler(void* pvParameters __attribute__((unused))) { //TODO
         break;
 
       case SYS_MODE:
-        /* code */
+        main_data.mode = (uint8_t)param.value;
         break;
 
       case FUN1_RPM:
@@ -278,31 +278,31 @@ void TaskGetTemp(void* pvParameters __attribute__((unused))) {
   uint8_t err_index = 0;
   for (;;) {
     if (ds1.ready()) {
-      float temp1 = FAULT_TEMP;
+      Param temp1 = { SENSOR1_TEMP, FAULT_TEMP };
       if (ds1.readTemp()) {
-        temp1 = ds1.getTemp();
-        Serial.println((String)"temp1: " + temp1);
+        temp1.value = (int)ds1.getTemp();
+        Serial.println((String)"temp1: " + temp1.value);
       }
       else {
         errors[ERR_TEMP1] = true;
         Serial.println("temp1 error");
       }
-      if (temp1 > MAX_TEMP)errors[ERR_TEMP1] = true;
-      // TODO send to main data
+      if (temp1.value > MAX_TEMP)errors[ERR_TEMP1] = true;
+      xQueueSend(mainDataQueue, &temp1, 0);
       ds1.requestTemp();
     }
     if (ds2.ready()) {
-      float temp2 = FAULT_TEMP;
+      Param temp2 = { SENSOR2_TEMP, FAULT_TEMP };
       if (ds2.readTemp()) {
-        temp2 = ds2.getTemp();
-        Serial.println((String)"temp2: " + temp2);
+        temp2.value = (int)ds2.getTemp();
+        Serial.println((String)"temp2: " + temp2.value);
       }
       else {
         errors[ERR_TEMP2] = true;
         Serial.println("temp2 error");
       }
-      if (temp2 > MAX_TEMP)errors[ERR_TEMP2] = true;
-      // TODO send to main data
+      if (temp2.value > MAX_TEMP)errors[ERR_TEMP2] = true;
+      xQueueSend(mainDataQueue, &temp2, 0);
       ds2.requestTemp();
     }
     vTaskDelay(2000 / portTICK_PERIOD_MS);
@@ -404,12 +404,10 @@ void TaskMain(void* pvParameters __attribute__((unused))) {
         xQueueSend(powerRelayStateQueue, &power_relay, 0);
         break;
       }
+      Param sys_mode = { SYS_MODE, (int)mode };
+      xQueueSend(mainDataQueue, &sys_mode, 0);
     }
-
-
   }
-
-
 }
 
 //***************************** functions *************************************************
