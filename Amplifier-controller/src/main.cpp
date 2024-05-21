@@ -275,7 +275,6 @@ void TaskMainDataHandler(void* pvParameters __attribute__((unused))) { //TODO
 }
 
 void TaskGetTemp(void* pvParameters __attribute__((unused))) {
-  uint8_t err_index = 0;
   for (;;) {
     if (ds1.ready()) {
       Param temp1 = { SENSOR1_TEMP, FAULT_TEMP };
@@ -328,7 +327,7 @@ void TaskCheckProtections(void* pvParameters __attribute__((unused))) {
   uint8_t mode = ERROR_MODE;
   vTaskDelay(5000 / portTICK_PERIOD_MS);
   for (;;) {
-    if (fnCheckErrors)xQueueSend(systemModeQueue, &mode, 0);
+    if (fnCheckErrors())xQueueSend(systemModeQueue, &mode, 0);
   }
 }
 
