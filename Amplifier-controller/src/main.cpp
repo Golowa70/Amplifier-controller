@@ -97,7 +97,7 @@ void setup() {
   attachInterrupt(3, fnRpm1, RISING);
   attachInterrupt(2, fnRpm2, RISING);
 
-  PWM_Instance = new AVR_PWM(pinToUse, 20000, 0);
+  PWM_Instance = new AVR_PWM(pinToUse, pwmFreq, 0);
 
   vTaskStartScheduler();
   uint8_t mode = START_MODE;
@@ -110,14 +110,16 @@ void loop() {
 //******************** tasks **********************************************
 
 void TaskThermostate(void* pvParameters __attribute__((unused))) {
-  bool th1 = false;
-  bool  th2 = false;
   for (;;) {
-    th1 = !digitalRead(THERMOSTAT_1);
-    th2 = !digitalRead(THERMOSTAT_2);
-    if (th1)errors[THERMOSTAT_1] = true;
-    if (th2)errors[THERMOSTAT_2] = true;
-    //TODO send to main data
+    Param over_temp = { OVER_TEMP1, (int)false };
+    over_temp.value = (int)!digitalRead(THERMOSTAT_1);
+    if (over_temp.value)errors[THERMOSTAT_1] = true;
+    xQueueSend(mainDataQueue, &over_temp, 0);
+
+    over_temp.key = OVER_TEMP2;
+    over_temp.value = (int)!digitalRead(THERMOSTAT_2);
+    if (over_temp.value)errors[THERMOSTAT_2] = true;
+    xQueueSend(mainDataQueue, &over_temp, 0);
   }
 }
 
@@ -194,9 +196,10 @@ void TaskLoudnes(void* pvParameters __attribute__((unused))) {
 void TaskPowerRelay(void* pvParameters __attribute__((unused))) {
   bool pwr_state = false;
   for (;;) {
-    if (xQueueReceive(powerRelayStateQueue, &pwr_state, 0) == pdPASS) {
-      digitalWrite(POWER_RELAY_OUT, pwr_state);
-      //TODO send to main data
+    Param pwr_state = { POWER_RELAY,(int)false };
+    if (xQueueReceive(powerRelayStateQueue, &pwr_state.value, 0) == pdPASS) {
+      digitalWrite(POWER_RELAY_OUT, (bool)pwr_state.value);
+      xQueueSend(mainDataQueue, &pwr_state, 0); //auto cast to bool ???
     }
     vTaskDelay(1);
   }
@@ -234,23 +237,23 @@ void TaskMainDataHandler(void* pvParameters __attribute__((unused))) { //TODO
         break;
 
       case FUN1_RPM:
-        /* code */
+        main_data.fun1_rpm = (uint16_t)param.value;
         break;
 
       case FUN2_RPM:
-        /* code */
+        main_data.fun1_rpm = (uint16_t)param.value;
         break;
 
       case OVER_TEMP1:
-        /* code */
+        main_data.over_temp_1 = (bool)param.value;
         break;
 
       case OVER_TEMP2:
-        /* code */
+        main_data.over_temp_2 = (bool)param.value;
         break;
 
       case POWER_RELAY:
-        /* code */
+        main_data.power_relay_state = (bool)param.value;
         break;
 
       case SP_A:
@@ -311,13 +314,14 @@ void TaskGetTemp(void* pvParameters __attribute__((unused))) {
 void TaskGetRpm(void* pvParameters __attribute__((unused))) {
   for (;;) {
     taskENTER_CRITICAL();
-    uint16_t rpm1, rpm2 = 0;
-    rpm1 = fnCalcRpm(&nbTopsFan1);
-    if (rpm1 < MIN_RPM)errors[ERR_FUN1] = true;
-    // TODO send to main data
-    rpm2 = fnCalcRpm(&nbTopsFan2);
-    if (rpm2 < MIN_RPM)errors[ERR_FUN2] = true;
-    // TODO send to main data
+    Param rpm = { FUN1_RPM, 0 };
+    rpm.value = (int)fnCalcRpm(&nbTopsFan1);
+    if (rpm.value < MIN_RPM)errors[ERR_FUN1] = true;
+    xQueueSend(mainDataQueue, &rpm, 0);
+    rpm.key = FUN2_RPM;
+    rpm.value = (int)fnCalcRpm(&nbTopsFan2);
+    if (rpm.value < MIN_RPM)errors[ERR_FUN2] = true;
+    xQueueSend(mainDataQueue, &rpm, 0);
     taskEXIT_CRITICAL();
     vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
@@ -328,6 +332,7 @@ void TaskCheckProtections(void* pvParameters __attribute__((unused))) {
   vTaskDelay(5000 / portTICK_PERIOD_MS);
   for (;;) {
     if (fnCheckErrors())xQueueSend(systemModeQueue, &mode, 0);
+    vTaskDelay(1);
   }
 }
 
