@@ -5,10 +5,7 @@
 #include <GyverDS18.h>
 
 #include "AVR_PWM.h"
-#define pinToUse      44            // Timer5C on Mega
 AVR_PWM* PWM_Instance;
-float pwmFreq = 20000;
-float pwmDuty = 20;
 
 #include "defines.h"
 #include "variables.h"
@@ -37,7 +34,7 @@ QueueHandle_t directRelayStateQueue;
 QueueHandle_t loudnesQueue;
 QueueHandle_t statusLedQueue;
 QueueHandle_t systemModeQueue;
-QueueHandle_t mainDataQueue; //TODO
+QueueHandle_t mainDataQueue;
 
 GButton btn_loudness(LOUDNESS_REMOTE_BUTTON_IN);
 GButton btn_direct(DIRECT_BUTTON_IN);
@@ -97,7 +94,7 @@ void setup() {
   attachInterrupt(3, fnRpm1, RISING);
   attachInterrupt(2, fnRpm2, RISING);
 
-  PWM_Instance = new AVR_PWM(pinToUse, pwmFreq, 0);
+  PWM_Instance = new AVR_PWM(FUN_PWM_OUT, PWM_FREQ, 0);
 
   vTaskStartScheduler();
   uint8_t mode = START_MODE;
@@ -154,29 +151,31 @@ void TaskButtonsPolling(void* pvParameters __attribute__((unused))) {
 }
 
 void TaskSpeakersRelays(void* pvParameters __attribute__((unused))) {
-  bool sp_A_state = false;
-  bool sp_B_state = false;
+  Param sp_state;
   for (;;) {
-    if (xQueueReceive(sp_A_stateQueue, &sp_A_state, 0) == pdPASS) {
-      digitalWrite(SPEAKERS_A_OUT, sp_A_state);
-      if (sp_A_state)digitalWrite(SPEAKERS_B_OUT, false);
-      //TODO send to main data
+    sp_state.key = SP_A;
+    if (xQueueReceive(sp_A_stateQueue, &sp_state.value, 0) == pdPASS) {
+      digitalWrite(SPEAKERS_A_OUT, sp_state.value);
+      if (sp_state.value)digitalWrite(SPEAKERS_B_OUT, false);
+      xQueueSend(mainDataQueue, &sp_state, 0);
     }
-    if (xQueueReceive(sp_B_stateQueue, &sp_B_state, 0) == pdPASS) {
-      digitalWrite(SPEAKERS_B_OUT, sp_B_state);
-      if (sp_B_state)digitalWrite(SPEAKERS_A_OUT, false);
-      //TODO send to main data
+    sp_state.key = SP_B;
+    if (xQueueReceive(sp_B_stateQueue, &sp_state.value, 0) == pdPASS) {
+      digitalWrite(SPEAKERS_B_OUT, sp_state.value);
+      if (sp_state.value)digitalWrite(SPEAKERS_A_OUT, false);
+      xQueueSend(mainDataQueue, &sp_state, 0);
     }
     vTaskDelay(1);
   }
 }
 
 void TaskDirectRelay(void* pvParameters __attribute__((unused))) {
-  bool dr_state = false;
+  Param dr_state;
   for (;;) {
-    if (xQueueReceive(directRelayStateQueue, &dr_state, 0) == pdPASS) {
-      digitalWrite(DIRECT_INPUT_RELAY_OUT, dr_state);
-      //TODO send to main data
+    dr_state.key = DIRECT_RELAY;
+    if (xQueueReceive(directRelayStateQueue, &dr_state.value, 0) == pdPASS) {
+      digitalWrite(DIRECT_INPUT_RELAY_OUT, dr_state.value);
+      xQueueSend(mainDataQueue, &dr_state, 0);
     }
     vTaskDelay(1);
   }
@@ -194,7 +193,6 @@ void TaskLoudnes(void* pvParameters __attribute__((unused))) {
 }
 
 void TaskPowerRelay(void* pvParameters __attribute__((unused))) {
-  bool pwr_state = false;
   for (;;) {
     Param pwr_state = { POWER_RELAY,(int)false };
     if (xQueueReceive(powerRelayStateQueue, &pwr_state.value, 0) == pdPASS) {
@@ -257,15 +255,15 @@ void TaskMainDataHandler(void* pvParameters __attribute__((unused))) { //TODO
         break;
 
       case SP_A:
-        /* code */
+        main_data.sp_A_out_state = (bool)param.value;
         break;
 
       case SP_B:
-        /* code */
+        main_data.sp_B_out_state = (bool)param.value;
         break;
 
       case DIRECT_RELAY:
-        /* code */
+        main_data.direct_relay_state = (bool)param.value;
         break;
 
       default:
@@ -273,7 +271,6 @@ void TaskMainDataHandler(void* pvParameters __attribute__((unused))) { //TODO
         break;
       }
     }
-
   }
 }
 
@@ -372,7 +369,7 @@ void TaskMain(void* pvParameters __attribute__((unused))) {
       switch (mode) {
 
       case START_MODE:
-        PWM_Instance->setPWM(pinToUse, pwmFreq, pwmDuty);
+        fnSetFunPwm(pwmDuty);
         led_mode = LED_SLOW;
         xQueueSend(statusLedQueue, &led_mode, 0);
         vTaskDelay(5000 / portTICK_PERIOD_MS);
@@ -437,4 +434,8 @@ void fnRpm1() {
 
 void fnRpm2() {
   nbTopsFan2++;
+}
+
+void fnSetFunPwm(float duty) {
+  PWM_Instance->setPWM(FUN_PWM_OUT, PWM_FREQ, duty);
 }

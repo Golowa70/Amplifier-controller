@@ -35,7 +35,7 @@
 #define POWER_RELAY_OUT                     22  //  J13
 #define SPEAKERS_A_OUT                      23  //  J14
 #define SPEAKERS_B_OUT                      24  //  J15
-#define FUN_PWM_OUT                         44 //   pwm out    J9-8
+#define FUN_PWM_OUT                         44 //   pwm out Timer5C on Mega   J9-8
 #define DIRECT_INPUT_RELAY_OUT              31  //  J8-1
 #define LOUDNES_LED                         32  //  J8-2
 #define POWER_BUTTON_LED                    33  //  J8-3
@@ -105,5 +105,8 @@
 #define SP_A                11
 #define SP_B                12
 #define DIRECT_RELAY        13
+
+//pwm
+#define PWM_FREQ            20000
 
 #endif

@@ -36,13 +36,19 @@ struct Data
   bool direct_relay_state;
 } main_data;
 
+//param struct for send to main_data
 struct Param {
   uint8_t key;
   int value;
 };
 
+//pwm 
+float pwmDuty = 20;
+
+//errors
 bool errors[ERR_QUANTITY] = { 0, };
 
+//fun rpm
 uint16_t nbTopsFan1;
 uint16_t nbTopsFan2;
 
