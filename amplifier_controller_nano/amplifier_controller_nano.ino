@@ -16,7 +16,7 @@
 #define START_DELAY 5000
 #define ON true
 #define OFF false
-#define LED_ON  false
+#define LED_ON false
 #define LED_OFF true
 #define SP_A_LED_PIN 0  // MCP23XXX pin LED
 #define SP_B_LED_PIN 1
@@ -28,8 +28,8 @@
 #define DIRECT_BUTTON_PIN 10
 #define LOUDNESS_BUTTON_PIN 11
 #define AMP_POWER_RELAY_PIN 6
-#define SP_A_RELAY_PIN  10
-#define SP_B_RELAY_PIN  11
+#define SP_A_RELAY_PIN 10
+#define SP_B_RELAY_PIN 11
 
 GyverDS18 ds(ONE_WIRE_PIN);  // pin
 uint64_t leftSensor = 0x7580000008684828;
@@ -83,6 +83,8 @@ void setup() {
 
   mcp.digitalWrite(POWER_LED_PIN, LED_ON);
   digitalWrite(AMP_POWER_RELAY_PIN, ON);
+  digitalWrite(SP_A_RELAY_PIN, ON);
+  mcp.digitalWrite(SP_A_LED_PIN, LED_ON);
 }
 
 void loop() {
@@ -127,19 +129,17 @@ void loop() {
 
   //************************** buttons + leds + relay *************************************
 
-  if(!mcp.digitalRead(SP_A_BUTTON_PIN)){
+  if (!mcp.digitalRead(SP_A_BUTTON_PIN)) {
     mcp.digitalWrite(SP_A_LED_PIN, LED_ON);
     digitalWrite(SP_A_RELAY_PIN, ON);
     mcp.digitalWrite(SP_B_LED_PIN, LED_OFF);
     digitalWrite(SP_B_RELAY_PIN, OFF);
   }
 
-   if(!mcp.digitalRead(SP_B_BUTTON_PIN)){
+  if (!mcp.digitalRead(SP_B_BUTTON_PIN)) {
     mcp.digitalWrite(SP_B_LED_PIN, LED_ON);
     digitalWrite(SP_B_RELAY_PIN, ON);
     mcp.digitalWrite(SP_A_LED_PIN, LED_OFF);
     digitalWrite(SP_A_RELAY_PIN, OFF);
   }
-
-  
 }
