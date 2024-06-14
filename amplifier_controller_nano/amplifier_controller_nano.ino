@@ -2,7 +2,7 @@
 #include <GyverDS18.h>
 #include <Adafruit_MCP23X17.h>
 
-
+#define ONE_WIRE_PIN 5
 #define PWM_PIN 9
 #define PWM_FREQ 25000
 #define PWM_OFF_DUTY 255
@@ -12,18 +12,26 @@
 #define ERROR 200
 #define TEMP_SETPOINT 55
 #define TEMP_HYSTERESYS 5
-#define FUN_POWER_OUT 11
 #define THERMOSTAT_IN 17
 #define START_DELAY 5000
-#define ON  true
+#define ON true
 #define OFF false
-#define SP_A_LED_PIN 0     // MCP23XXX pin LED 
-#define SP_B_LED_PIN 1    // MCP23XXX pin LED 
-#define SP_A_BUTTON_PIN 8 // MCP23XXX pin button 
-#define SP_B_BUTTON_PIN 9 // MCP23XXX pin button
+#define LED_ON  false
+#define LED_OFF true
+#define SP_A_LED_PIN 0  // MCP23XXX pin LED
+#define SP_B_LED_PIN 1
+#define DIRECT_LED_PIN 2
+#define LOUDNESS_LED_PIN 3
+#define POWER_LED_PIN 4
+#define SP_A_BUTTON_PIN 8  // MCP23XXX pin button
+#define SP_B_BUTTON_PIN 9
+#define DIRECT_BUTTON_PIN 10
+#define LOUDNESS_BUTTON_PIN 11
+#define AMP_POWER_RELAY_PIN 6
+#define SP_A_RELAY_PIN  10
+#define SP_B_RELAY_PIN  11
 
-
-GyverDS18 ds(5);  // пин
+GyverDS18 ds(ONE_WIRE_PIN);  // pin
 uint64_t leftSensor = 0x7580000008684828;
 uint64_t rightSensor = 0xF580000027DF8D28;
 
@@ -31,6 +39,8 @@ float leftTemp;
 float rightTemp;
 bool isTempHi = false;
 bool isThermostatOn = false;
+bool speakerA = false;
+bool speakerB = false;
 
 Adafruit_MCP23X17 mcp;
 
@@ -44,24 +54,40 @@ void setup() {
   //   } else {
   //       Serial.println("error");
   //   }
+
   pinMode(PWM_PIN, OUTPUT);
-  pinMode(FUN_POWER_OUT, OUTPUT);
+  pinMode(AMP_POWER_RELAY_PIN, OUTPUT);
+  pinMode(SP_A_RELAY_PIN, OUTPUT);
+  pinMode(SP_B_RELAY_PIN, OUTPUT);
   pinMode(THERMOSTAT_IN, INPUT);
-  digitalWrite(FUN_POWER_OUT, ON);
+
+  mcp.begin_I2C();
+  mcp.pinMode(SP_A_LED_PIN, OUTPUT);
+  mcp.pinMode(SP_B_LED_PIN, OUTPUT);
+  mcp.pinMode(DIRECT_LED_PIN, OUTPUT);
+  mcp.pinMode(LOUDNESS_LED_PIN, OUTPUT);
+  mcp.pinMode(POWER_LED_PIN, OUTPUT);
+  mcp.pinMode(SP_A_BUTTON_PIN, INPUT_PULLUP);
+  mcp.pinMode(SP_B_BUTTON_PIN, INPUT_PULLUP);
+  mcp.pinMode(DIRECT_BUTTON_PIN, INPUT_PULLUP);
+  mcp.pinMode(LOUDNESS_BUTTON_PIN, INPUT_PULLUP);
+
+  mcp.digitalWrite(SP_A_LED_PIN, LED_OFF);
+  mcp.digitalWrite(SP_B_LED_PIN, LED_OFF);
+
   PWM_frequency(PWM_PIN, PWM_FREQ, FAST_PWM);
   PWM_set(PWM_PIN, PWM_MAX_DUTY);  //inverted
   delay(START_DELAY);
   PWM_set(PWM_PIN, PWM_MIN_DUTY);  //inverted
   ds.requestTemp();
 
-  mcp.begin_I2C();
-  mcp.pinMode(SP_A_LED_PIN, OUTPUT);
-  mcp.pinMode(SP_B_LED_PIN, OUTPUT);
-  mcp.pinMode(SP_A_BUTTON_PIN, INPUT_PULLUP);
-  mcp.pinMode(SP_B_BUTTON_PIN, INPUT_PULLUP);
+  mcp.digitalWrite(POWER_LED_PIN, LED_ON);
+  digitalWrite(AMP_POWER_RELAY_PIN, ON);
 }
 
-void loop() { 
+void loop() {
+
+  //********************** temp + fun control*******************************
   if (ds.ready()) {  // измерения готовы по таймеру
     // читаем КОНКРЕТНЫЙ датчик по адресу
     if (ds.readTemp(rightSensor)) {  // если чтение успешно
@@ -82,26 +108,38 @@ void loop() {
     }
     ds.requestTemp();  // запрос следующего измерения ДЛЯ ВСЕХ
   }
+
+  if (leftTemp > TEMP_SETPOINT || rightTemp > TEMP_SETPOINT) {
+    isTempHi = true;
+  }
+  if (rightTemp < (TEMP_SETPOINT - TEMP_HYSTERESYS) && leftTemp < (TEMP_SETPOINT - TEMP_HYSTERESYS)) {
+    isTempHi = false;
+  }
+
+  isThermostatOn = digitalRead(THERMOSTAT_IN);
+
+  if (isThermostatOn) {
+    PWM_set(PWM_PIN, PWM_MAX_DUTY);
+  } else {
+    isTempHi ? PWM_set(PWM_PIN, PWM_NORMAL_DUTY) : PWM_set(PWM_PIN, PWM_MIN_DUTY);
+  }
+  // digitalWrite(FUN_POWER_OUT, isTempHi || isThermostatOn ? ON : OFF);
+
+  //************************** buttons + leds + relay *************************************
+
+  if(!mcp.digitalRead(SP_A_BUTTON_PIN)){
+    mcp.digitalWrite(SP_A_LED_PIN, LED_ON);
+    digitalWrite(SP_A_RELAY_PIN, ON);
+    mcp.digitalWrite(SP_B_LED_PIN, LED_OFF);
+    digitalWrite(SP_B_RELAY_PIN, OFF);
+  }
+
+   if(!mcp.digitalRead(SP_B_BUTTON_PIN)){
+    mcp.digitalWrite(SP_B_LED_PIN, LED_ON);
+    digitalWrite(SP_B_RELAY_PIN, ON);
+    mcp.digitalWrite(SP_A_LED_PIN, LED_OFF);
+    digitalWrite(SP_A_RELAY_PIN, OFF);
+  }
+
   
-
-    if (leftTemp > TEMP_SETPOINT || rightTemp > TEMP_SETPOINT ) {
-      isTempHi = true;
-    }
-    if (rightTemp < (TEMP_SETPOINT - TEMP_HYSTERESYS) && leftTemp < (TEMP_SETPOINT - TEMP_HYSTERESYS)) {
-      isTempHi = false;
-    }
-
-    isThermostatOn = digitalRead(THERMOSTAT_IN);
-
-    if(isThermostatOn){
-      PWM_set(PWM_PIN, PWM_MAX_DUTY);
-    }else{
-      isTempHi ? PWM_set(PWM_PIN, PWM_NORMAL_DUTY) : PWM_set(PWM_PIN, PWM_MIN_DUTY);
-    }
-    // digitalWrite(FUN_POWER_OUT, isTempHi || isThermostatOn ? ON : OFF);
-  
-  mcp.digitalWrite(SP_A_LED_PIN, mcp.digitalRead(SP_A_BUTTON_PIN));
-  mcp.digitalWrite(SP_B_LED_PIN, mcp.digitalRead(SP_B_BUTTON_PIN));
-
-
 }
