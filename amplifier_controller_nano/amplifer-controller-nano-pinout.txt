@@ -1,0 +1,26 @@
+
+
+Inputs:
+Input_1 –A0
+Input_2 – A1
+Input_3 –A2
+Input_4 – A3
+
+Outputs:
+Output_1 – D6
+Output_2 –D9
+Output_3 –D10
+Output_4 –D11
+
+1Ware-D5
+
+ModBus:
+Rx-D2
+PeDe-D3
+Tx-D4
+
+I2C:
+SDA-A4
+SCL-A5
+
+Buzzer-D12
